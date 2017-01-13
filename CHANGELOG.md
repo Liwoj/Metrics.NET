@@ -1,3 +1,35 @@
+###0.4.7 / 2016-12-23 (0.4.7-pre / 2016-12-19)
+* the Graphite and text file reporters now work with configurable error tolerance
+
+###0.4.6-pre / 2016-12-06
+* reporting can now be configured to be error tolerant (Metrics.Reports.ToleratedConsecutiveFailures config key)
+* an exception is now thrown during startup if an http endpoint is configured more than once
+
+###0.4.5-pre / 2016-12-02
+* disabling metrics now properly works with config extensions
+* performance counters are no longer being registered when metrics are disabled
+
+###0.4.4 / 2016-12-02
+* health checks can now be updated at runtime (@bronsh)
+* fixed the 404 response of core metrics http listener
+
+###0.4.3-pre / 2016-10-09
+* Nancy.Metrics adapter: support for endpoint reports
+* Owin.Metrics adapter: support for endpoint reports
+* decoupled endpoint reports from http listener implementation
+* graphite can now be disabled by omitting config entries (@slawwan)
+
+###0.4.2-pre / 2016-09-18
+* graphite report can now be configured from app.config file (@slawwan)
+* fixed owin adapter endpoints content type header (@glennular)
+
+###0.4.1-pre / 2016-07-24
+* fixed issue with timer metric not using the uservalue when marking the interal meter (@epeshk)
+* updated liblog to the latest version (@tsibelman)
+
+###0.4.0-pre / 2016-06-20
+* support for configuring endpoint reports
+
 ###0.3.7 / 2016-05-31
 * fixed AppEnvironment.Current when Assembly.GetEntryAssembly() returns null
 

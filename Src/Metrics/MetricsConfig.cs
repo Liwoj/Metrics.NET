@@ -1,14 +1,13 @@
-﻿
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Configuration;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
+using Metrics.Endpoints;
 using Metrics.Logging;
 using Metrics.MetricData;
 using Metrics.Reports;
-using Metrics.Visualization;
 
 namespace Metrics
 {
@@ -25,12 +24,12 @@ namespace Metrics
 
         private readonly CancellationTokenSource httpEndpointCancellation = new CancellationTokenSource();
 
-        private readonly Dictionary<string,Task<MetricsHttpListener>> httpEndpoints = new Dictionary<string, Task<MetricsHttpListener>>();
+        private readonly Dictionary<string, Task<MetricsHttpListener>> httpEndpoints = new Dictionary<string, Task<MetricsHttpListener>>();
 
         private SamplingType defaultSamplingType = SamplingType.ExponentiallyDecaying;
 
         private bool isDisabled = MetricsConfig.GloballyDisabledMetrics;
-        
+
         /// <summary>
         /// Gets the currently configured default sampling type to use for histogram sampling.
         /// </summary>
@@ -51,6 +50,7 @@ namespace Metrics
             {
                 this.healthStatus = HealthChecks.GetStatus;
                 this.reports = new MetricsReports(this.context.DataProvider, this.healthStatus);
+
                 this.context.Advanced.ContextDisabled += (s, e) =>
                 {
                     this.isDisabled = true;
@@ -76,19 +76,40 @@ namespace Metrics
                 return this;
             }
 
-            if (this.httpEndpoints.ContainsKey(httpUriPrefix))
+            return WithHttpEndpoint(httpUriPrefix, _ => { }, filter, maxRetries);
+        }
+
+        /// <summary>
+        /// Create HTTP endpoint where metrics will be available in various formats:
+        /// GET / => visualization application
+        /// GET /json => metrics serialized as JSON
+        /// GET /text => metrics in human readable text format
+        /// </summary>
+        /// <param name="httpUriPrefix">prefix where to start HTTP endpoint</param>
+        /// <param name="reportsConfig">Endpoint reports configuration</param>
+        /// <param name="filter">Only report metrics that match the filter.</param> 
+        /// <param name="maxRetries">maximum number of attempts to start the http listener. Note the retry time between attempts is dependent on this value</param>
+        /// <returns>Chain-able configuration object.</returns>
+        public MetricsConfig WithHttpEndpoint(string httpUriPrefix, Action<MetricsEndpointReports> reportsConfig, MetricsFilter filter = null, int maxRetries = 3)
+        {
+            if (this.isDisabled)
             {
-                log.WarnFormat("Http uri prefix {0} already registered. Ignoring...", httpUriPrefix);
                 return this;
             }
 
-            var endpoint = MetricsHttpListener.StartHttpListenerAsync(httpUriPrefix, this.context.DataProvider.WithFilter(filter), 
-                this.healthStatus, this.httpEndpointCancellation.Token, maxRetries);
-            this.httpEndpoints.Add(httpUriPrefix,endpoint);
-          
+            if (this.httpEndpoints.ContainsKey(httpUriPrefix))
+            {
+                throw new InvalidOperationException($"Http URI prefix {httpUriPrefix} already configured.");
+            }
+
+            var endpointReports = new MetricsEndpointReports(this.context.DataProvider.WithFilter(filter), this.healthStatus);
+            reportsConfig(endpointReports);
+
+            var endpoint = MetricsHttpListener.StartHttpListenerAsync(httpUriPrefix, endpointReports.Endpoints, this.httpEndpointCancellation.Token, maxRetries);
+            this.httpEndpoints.Add(httpUriPrefix, endpoint);
+
             return this;
         }
-
         /// <summary>
         /// Configure Metrics library to use a custom health status reporter. By default HealthChecks.GetStatus() is used.
         /// </summary>
@@ -173,7 +194,12 @@ namespace Metrics
         /// <returns>Chain-able configuration object.</returns>
         public MetricsConfig WithConfigExtension(Action<MetricsContext, Func<HealthStatus>> extension)
         {
-            return WithConfigExtension((m, h) => { extension(m, h); return this; });
+            if (this.isDisabled)
+            {
+                return this;
+            }
+
+            return WithConfigExtension((m, h) => { extension(m, h); return this; }, () => this);
         }
 
         /// <summary>
@@ -185,8 +211,29 @@ namespace Metrics
         /// </remarks>
         /// <param name="extension">Action to apply extra configuration.</param>
         /// <returns>The result of calling the extension.</returns>
+        [Obsolete("This configuration method ignores the CompletelyDisableMetrics setting. Please use the overload instead.")]
         public T WithConfigExtension<T>(Func<MetricsContext, Func<HealthStatus>, T> extension)
         {
+            return extension(this.context, this.healthStatus);
+        }
+
+        /// <summary>
+        /// This method is used for customizing the metrics configuration.
+        /// The <paramref name="extension"/> will be called with the current MetricsContext and HealthStatus provider.
+        /// </summary>
+        /// <remarks>
+        /// In general you don't need to call this method directly.
+        /// </remarks>
+        /// <param name="extension">Action to apply extra configuration.</param>
+        /// <param name="defaultValueProvider">Default value provider for T, which will be used when metrics are disabled.</param>
+        /// <returns>The result of calling the extension.</returns>
+        public T WithConfigExtension<T>(Func<MetricsContext, Func<HealthStatus>, T> extension, Func<T> defaultValueProvider)
+        {
+            if (this.isDisabled)
+            {
+                return defaultValueProvider();
+            }
+
             return extension(this.context, this.healthStatus);
         }
 
@@ -197,6 +244,11 @@ namespace Metrics
         /// <returns>Chain-able configuration object.</returns>
         public MetricsConfig WithDefaultSamplingType(SamplingType type)
         {
+            if (this.isDisabled)
+            {
+                return this;
+            }
+
             if (type == SamplingType.Default)
             {
                 throw new ArgumentException("Sampling type other than default must be specified", nameof(type));
@@ -207,6 +259,11 @@ namespace Metrics
 
         public MetricsConfig WithInternalMetrics()
         {
+            if (this.isDisabled)
+            {
+                return this;
+            }
+
             Metric.EnableInternalMetrics();
             return this;
         }
@@ -296,7 +353,7 @@ namespace Metrics
             try
             {
                 var isDisabled = ConfigurationManager.AppSettings["Metrics.CompletelyDisableMetrics"];
-                return !string.IsNullOrEmpty(isDisabled) && isDisabled.Equals("TRUE",StringComparison.OrdinalIgnoreCase);
+                return !string.IsNullOrEmpty(isDisabled) && isDisabled.Equals("TRUE", StringComparison.OrdinalIgnoreCase);
             }
             catch (Exception x)
             {

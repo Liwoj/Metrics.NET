@@ -1,11 +1,13 @@
-﻿using System.Net;
+﻿using System;
+using System.Linq;
+using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
-using Metrics.Visualization;
+using Metrics.Endpoints;
 using Xunit;
 
-namespace Metrics.Tests.Visualization
+namespace Metrics.Tests.Endpoints
 {
     public class MetricsHttpListenerTests
     {
@@ -16,7 +18,7 @@ namespace Metrics.Tests.Visualization
         private static Task<MetricsHttpListener> StartListener(string endpoint)
         {
             var context = new TestContext();
-            return MetricsHttpListener.StartHttpListenerAsync(Endpoint(endpoint), context.DataProvider, () => new HealthStatus(), CancellationToken.None);
+            return MetricsHttpListener.StartHttpListenerAsync(Endpoint(endpoint), Enumerable.Empty<MetricsEndpoint>(), CancellationToken.None);
         }
 
         [Fact]
@@ -74,11 +76,12 @@ namespace Metrics.Tests.Visualization
 
 
         [Fact]
-        public void MetricsHttpListener_MetricsConfig_SecondCallToWithHttpEndportDoesNotThrow()
+        public void MetricsHttpListener_MetricsConfig_SecondCallToWithHttpEndpointThrows()
         {
             using (var config = CreateConfig().WithHttpEndpoint("http://localhost:58888/metricstest/HttpListenerTests/sameendpoint/"))
             {
-                config.WithHttpEndpoint("http://localhost:58888/metricstest/HttpListenerTests/sameendpoint/");
+                var action = new Action(() => config.WithHttpEndpoint("http://localhost:58888/metricstest/HttpListenerTests/sameendpoint/"));
+                action.ShouldThrow<Exception>();
             }
         }
 
